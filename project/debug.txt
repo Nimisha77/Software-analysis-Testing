@@ -1,0 +1,14 @@
+Scanning dependencies of target svf-project
+[ 50%] Building CXX object src/CMakeFiles/svf-project.dir/project.cpp.o
+/home/project/src/project.cpp: In function 'int main(int, char**)':
+/home/project/src/project.cpp:94:30: error: cannot convert 'SVF::ICFGNode**' to 'SVF::ICFGNode*'
+   94 |     traverseICFG(icfg,source,&sink,path,ans);
+      |                              ^~~~~
+      |                              |
+      |                              SVF::ICFGNode**
+/home/project/src/project.cpp:52:60: note:   initializing argument 3 of 'void traverseICFG(SVF::ICFG*, SVF::ICFGNode*, SVF::ICFGNode*, std::vector<int, std::allocator<int> >&, std::vector<std::vector<int, std::allocator<int> > >&)'
+   52 |     void traverseICFG(ICFG* icfg, ICFGNode* src, ICFGNode* sink, std::vector<int> &path, std::vector<std::vector<int>> &ans);
+      |                                                  ~~~~~~~~~~^~~~
+make[2]: *** [src/CMakeFiles/svf-project.dir/build.make:63: src/CMakeFiles/svf-project.dir/project.cpp.o] Error 1
+make[1]: *** [CMakeFiles/Makefile2:178: src/CMakeFiles/svf-project.dir/all] Error 2
+make: *** [Makefile:84: all] Error 2

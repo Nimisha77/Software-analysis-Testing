@@ -1,0 +1,210 @@
+
+//===- SVF-Project -------------------------------------//
+//
+//                     SVF: Static Value-Flow Analysis
+//
+// Copyright (C) <2013->  <Yulei Sui>
+//
+
+// This program is free software: you can redistribute it and/or modify
+// it under the terms of the GNU General Public License as published by
+// the Free Software Foundation, either version 3 of the License, or
+// (at your option) any later version.
+
+// This program is distributed in the hope that it will be useful,
+// but WITHOUT ANY WARRANTY; without even the implied warranty of
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+// GNU General Public License for more details.
+
+// You should have received a copy of the GNU General Public License
+// along with this program.  If not, see <http://www.gnu.org/licenses/>.
+//
+//===-----------------------------------------------------------------------===//
+#include "SVF-LLVM/LLVMUtil.h"
+#include "SVF-LLVM/SVFIRBuilder.h"
+#include "WPA/Andersen.h"
+#include "Graphs/ICFG.h"
+
+#include <iostream>
+#include <vector>
+#include <set>
+
+using namespace llvm;
+using namespace std;
+using namespace SVF;
+
+static llvm::cl::opt<std::string> InputFilename(cl::Positional,
+		llvm::cl::desc("<input bitcode>"), llvm::cl::init("-"));
+
+int main(int argc, char ** argv) {
+	int arg_num = 0;
+	char **arg_value = new char*[argc];
+	std::vector<std::string> moduleNameVec;
+	SVF::LLVMUtil::processArguments(argc, argv, arg_num, arg_value, moduleNameVec);
+	cl::ParseCommandLineOptions(arg_num, arg_value,
+								"Whole Program Points-to Analysis\n");
+
+	SVFModule* svfModule = LLVMModuleSet::getLLVMModuleSet()->buildSVFModule(moduleNameVec);
+	// build icfg 
+	SVFIRBuilder builder(svfModule);
+	SVFIR* pag = builder.build();
+	ICFG* icfg = pag->getICFG();
+	// void traverseICFG(ICFG* icfg, ICFGNode* src, ICFGNode* sink, std::vector<int> &path, std::vector<std::vector<int>> &ans);
+	void traverseICFG(ICFG* icfg, ICFGNode* source, ICFGNode* sink);
+
+	icfg->dump("switch");
+	return 0;
+	// for(auto it= icfg->begin(); it != icfg->end();++it){
+	//   cout << it->first << " " << it->second->getNodeKind()<< "\n";
+	// }
+	// for(auto it= icfg->begin(); it != icfg->end();++it){
+	//   cout << it->first << " " << it->second->toString()<< "\n";
+	  
+	// }
+	// for(auto it= icfg->begin(); it != icfg->end();++it){
+	//   cout << it->first<< ":\n";
+	//   for (auto& out : it->second->getOutEdges()) {
+	//     std::cout << out->getDstID() << " ";
+	//   }
+	//   cout << "\n";
+	// }
+
+	// Find source and sink
+	ICFGNode *source, *sink = nullptr;
+	for(auto it = icfg->begin(); it != icfg->end(); ++it){
+	  // cout << it->first << " " << it->second->getNodeKind()<< "\n";
+
+	  // FunEntryBlock
+	  if(it->second->getNodeKind() == 1) {
+		if(it->second->getFun()->getName() == "src") {
+		  source = it->second;
+		}
+		else if(it->second->getFun()->getName() == "sink") {
+		  sink = it->second;
+		}
+	  }
+	}
+
+	if(source == nullptr || sink == nullptr) {
+	  cout << "No source or sink was found in the ICFG";
+	  return 1;
+	}
+
+	// ICFG Traversal
+	traverseICFG(icfg, source, sink);
+	
+	return 0;
+}
+
+void traverseICFG(ICFG* icfg, ICFGNode* source, ICFGNode* sink) {
+	bool isReachable = false;
+	std::stack<std::tuple<ICFGNode*, std::vector<int>, std::unordered_set<int>>> stack;
+	stack.push(std::make_tuple(source, std::vector<int>{source->getId()}, std::unordered_set<int>{}));
+
+	while (!stack.empty()) {
+		auto [current, path, visited] = stack.top();
+		stack.pop();
+
+		// Sink found
+		if (current->getId() == sink->getId()) {
+			if(!isReachable) {
+				isReachable = true;
+				cout << "Reachable\n";
+			}
+			for (int node : path) {
+				std::cout << node;
+				if (node != path.back()) {
+					std::cout << "->";
+				}
+			}
+			std::cout << std::endl;
+			continue;
+		}
+
+		visited.insert(current->getId());
+
+		int cycle_start = -1;
+		int cycle_start_id = -1;
+		for (auto neighborEdge : current->getOutEdges()) {
+			if(current->getOutEdges().size() > 1) {
+				cycle_start_id = current->getId();
+				cycle_start = std::distance(path.begin(), std::find(path.begin(), path.end(), current->getId()));
+				// // Pre-cycle path
+				// for (int node : path) {
+				// 	std::cout << node << "->";
+				// }
+			}
+
+			if (visited.find(neighborEdge->getDstID()) == visited.end()) { // Neighbor is not in visited
+				std::vector<int> new_path = path;
+				new_path.push_back(neighborEdge->getDstID());
+				stack.push(std::make_tuple(neighborEdge->getDstNode(), new_path, visited));
+			} else if (std::find(path.begin(), path.end(), neighborEdge->getDstID()) != path.end()) { // Neighbor is found in path
+				// Printing the cycle
+				std::vector<int> cycle(path.begin() + cycle_start, path.end());
+				std::vector<int> pre_cycle(path.begin(), path.begin() + cycle_start);
+				path[cycle_start] = -1; // Mark the start of the cycle
+				
+				std::cout << "Cycle[";
+				for (int node : cycle) {
+					if (node == -1) {
+						std::cout << "->";
+					} else {
+						std::cout << node;
+						if (node != cycle.back()) {
+							std::cout << "->";
+						}
+					}
+				}
+				std::cout << "]";
+				for (int node : path) {
+					if (node != -1) {
+						std::cout << "->" << node;
+					}
+				}
+				std::cout << std::endl;
+				break;
+			}
+		}
+	}
+	if(!isReachable) {
+		cout << "Unreachable";
+	}
+}
+
+// void traverseICFG(ICFG* icfg, ICFGNode* src, ICFGNode* sink, std::vector<int> &path, std::vector<std::vector<int>> &ans, std::vector<int> &visited)
+// {
+//     // Add the current node to the path
+//     path.push_back(src->getId());
+
+//     // If the current node is the sink, print the path
+//     if (src->getId() == sink->getId())
+//     {
+//         ans.push_back(path);
+//         path.pop_back();
+//         return;
+//     }
+//     else
+//     {
+//         // Recursively visit neighbors
+//         for (auto& neighbor : src->getOutEdges()) {
+//           auto cycle_start = std::find(path.begin(), path.end(), neighbor->getDstID());
+//           if(std::find(visited.begin(), visited.end(), neighbor->getDstNode()) == visited.end()) {
+//             traverseICFG(icfg, neighbor->getDstNode(), sink, path, ans);
+//           } else if(cycle_start != path.end()) {
+			
+//           }
+//         }
+//     }
+
+//     // Remove the current node from the path to backtrack
+//     path.pop_back();
+// }
+// cycle[1.2.3.4]
+// cycle[2.3.4]
+// cycle[4.5.6]
+
+// cycle[1.cycle[2.3.4]]
+// cycle[4.5.6]
+// 1.2.3.4.5.6.7.8
+// 1.2.4.5.6.7.8
